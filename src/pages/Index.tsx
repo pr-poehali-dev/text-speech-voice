@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
@@ -72,6 +72,9 @@ export default function Index() {
   const [volume, setVolume] = useState([0.8]);
   const [selectedEmotion, setSelectedEmotion] = useState('neutral');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const [projects, setProjects] = useState<Project[]>([
     {
       id: '1',
@@ -85,6 +88,14 @@ export default function Index() {
   const allVoices = [...russianVoices, ...englishVoices];
   const currentVoice = allVoices.find((v) => v.id === selectedVoice);
 
+  useEffect(() => {
+    return () => {
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
   const handleSynthesis = () => {
     if (!text.trim()) {
       toast({
@@ -95,13 +106,75 @@ export default function Index() {
       return;
     }
 
-    toast({
-      title: 'Синтезирование...',
-      description: `Создаю озвучку голосом ${currentVoice?.name}`,
-    });
+    if (!window.speechSynthesis) {
+      toast({
+        title: 'Ошибка',
+        description: 'Ваш браузер не поддерживает синтез речи',
+        variant: 'destructive',
+      });
+      return;
+    }
 
-    setIsPlaying(true);
-    setTimeout(() => setIsPlaying(false), 3000);
+    if (isPlaying) {
+      window.speechSynthesis.cancel();
+      setIsPlaying(false);
+      setProgress(0);
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utteranceRef.current = utterance;
+
+    const voices = window.speechSynthesis.getVoices();
+    const selectedLang = currentVoice?.language === 'ru' ? 'ru-RU' : 'en-US';
+    const voice = voices.find((v) => v.lang.startsWith(selectedLang));
+    
+    if (voice) {
+      utterance.voice = voice;
+    }
+    utterance.lang = selectedLang;
+    utterance.rate = speed[0];
+    utterance.pitch = pitch[0];
+    utterance.volume = volume[0];
+
+    const estimatedDuration = (text.length / 10) * (1 / speed[0]);
+    setDuration(estimatedDuration);
+    setProgress(0);
+
+    utterance.onstart = () => {
+      setIsPlaying(true);
+      toast({
+        title: 'Воспроизведение',
+        description: `Озвучиваю голосом ${currentVoice?.name}`,
+      });
+    };
+
+    utterance.onend = () => {
+      setIsPlaying(false);
+      setProgress(0);
+    };
+
+    utterance.onerror = () => {
+      setIsPlaying(false);
+      setProgress(0);
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось воспроизвести озвучку',
+        variant: 'destructive',
+      });
+    };
+
+    const progressInterval = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(progressInterval);
+          return 100;
+        }
+        return prev + (100 / (estimatedDuration * 10));
+      });
+    }, 100);
+
+    window.speechSynthesis.speak(utterance);
   };
 
   const handleSaveProject = () => {
@@ -295,7 +368,6 @@ export default function Index() {
                       size="lg"
                       onClick={handleSynthesis}
                       className="rounded-full w-16 h-16"
-                      disabled={isPlaying}
                     >
                       <Icon name={isPlaying ? 'Square' : 'Play'} className="h-6 w-6" />
                     </Button>
@@ -305,12 +377,12 @@ export default function Index() {
                           className={`h-full bg-primary transition-all duration-300 ${
                             isPlaying ? 'animate-pulse' : ''
                           }`}
-                          style={{ width: isPlaying ? '100%' : '0%' }}
+                          style={{ width: `${progress}%` }}
                         />
                       </div>
                       <div className="flex justify-between text-xs text-muted-foreground mt-2">
-                        <span>0:00</span>
-                        <span>0:00</span>
+                        <span>{Math.floor((progress / 100) * duration)}с</span>
+                        <span>{Math.floor(duration)}с</span>
                       </div>
                     </div>
                   </div>
