@@ -1,14 +1,430 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Slider } from '@/components/ui/slider';
+import { Card } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Badge } from '@/components/ui/badge';
+import Icon from '@/components/ui/icon';
+import { useToast } from '@/hooks/use-toast';
 
-const Index = () => {
+interface Voice {
+  id: string;
+  name: string;
+  gender: 'male' | 'female';
+  language: 'ru' | 'en';
+  description: string;
+}
+
+interface Project {
+  id: string;
+  name: string;
+  text: string;
+  voice: string;
+  timestamp: string;
+}
+
+const russianVoices: Voice[] = [
+  { id: 'ru-1', name: 'Александр', gender: 'male', language: 'ru', description: 'Уверенный мужской голос' },
+  { id: 'ru-2', name: 'Дмитрий', gender: 'male', language: 'ru', description: 'Глубокий бархатный тембр' },
+  { id: 'ru-3', name: 'Михаил', gender: 'male', language: 'ru', description: 'Энергичный и динамичный' },
+  { id: 'ru-4', name: 'Николай', gender: 'male', language: 'ru', description: 'Спокойный и размеренный' },
+  { id: 'ru-5', name: 'Сергей', gender: 'male', language: 'ru', description: 'Теплый дружелюбный голос' },
+  { id: 'ru-6', name: 'Анастасия', gender: 'female', language: 'ru', description: 'Мягкий женский голос' },
+  { id: 'ru-7', name: 'Екатерина', gender: 'female', language: 'ru', description: 'Профессиональный и четкий' },
+  { id: 'ru-8', name: 'Мария', gender: 'female', language: 'ru', description: 'Нежный и приятный' },
+  { id: 'ru-9', name: 'Ольга', gender: 'female', language: 'ru', description: 'Выразительный и яркий' },
+  { id: 'ru-10', name: 'Юлия', gender: 'female', language: 'ru', description: 'Молодой живой голос' },
+];
+
+const englishVoices: Voice[] = [
+  { id: 'en-1', name: 'James', gender: 'male', language: 'en', description: 'Authoritative British voice' },
+  { id: 'en-2', name: 'Michael', gender: 'male', language: 'en', description: 'Warm American voice' },
+  { id: 'en-3', name: 'William', gender: 'male', language: 'en', description: 'Professional narrator' },
+  { id: 'en-4', name: 'David', gender: 'male', language: 'en', description: 'Deep resonant tone' },
+  { id: 'en-5', name: 'Robert', gender: 'male', language: 'en', description: 'Friendly conversational' },
+  { id: 'en-6', name: 'Emma', gender: 'female', language: 'en', description: 'Clear British accent' },
+  { id: 'en-7', name: 'Olivia', gender: 'female', language: 'en', description: 'Soft American voice' },
+  { id: 'en-8', name: 'Sophia', gender: 'female', language: 'en', description: 'Professional presenter' },
+  { id: 'en-9', name: 'Charlotte', gender: 'female', language: 'en', description: 'Energetic and bright' },
+  { id: 'en-10', name: 'Isabella', gender: 'female', language: 'en', description: 'Elegant and refined' },
+];
+
+const emotions = [
+  { id: 'neutral', label: 'Нейтрально', icon: 'Minus' },
+  { id: 'joy', label: 'Радость', icon: 'Smile' },
+  { id: 'sadness', label: 'Грусть', icon: 'Frown' },
+  { id: 'laughter', label: 'Смех', icon: 'Laugh' },
+  { id: 'humor', label: 'Юмор', icon: 'PartyPopper' },
+  { id: 'anger', label: 'Гнев', icon: 'Angry' },
+  { id: 'fear', label: 'Страх', icon: 'Ghost' },
+  { id: 'surprise', label: 'Удивление', icon: 'Sparkles' },
+];
+
+export default function Index() {
+  const { toast } = useToast();
+  const [text, setText] = useState('');
+  const [selectedVoice, setSelectedVoice] = useState<string>('ru-1');
+  const [speed, setSpeed] = useState([1.0]);
+  const [pitch, setPitch] = useState([1.0]);
+  const [intonation, setIntonation] = useState([1.0]);
+  const [volume, setVolume] = useState([0.8]);
+  const [selectedEmotion, setSelectedEmotion] = useState('neutral');
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([
+    {
+      id: '1',
+      name: 'Демо озвучка',
+      text: 'Привет! Это демонстрация синтезатора речи.',
+      voice: 'ru-1',
+      timestamp: new Date().toLocaleString('ru-RU'),
+    },
+  ]);
+
+  const allVoices = [...russianVoices, ...englishVoices];
+  const currentVoice = allVoices.find((v) => v.id === selectedVoice);
+
+  const handleSynthesis = () => {
+    if (!text.trim()) {
+      toast({
+        title: 'Ошибка',
+        description: 'Введите текст для озвучки',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    toast({
+      title: 'Синтезирование...',
+      description: `Создаю озвучку голосом ${currentVoice?.name}`,
+    });
+
+    setIsPlaying(true);
+    setTimeout(() => setIsPlaying(false), 3000);
+  };
+
+  const handleSaveProject = () => {
+    if (!text.trim()) {
+      toast({
+        title: 'Ошибка',
+        description: 'Нет текста для сохранения',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const newProject: Project = {
+      id: Date.now().toString(),
+      name: `Проект ${projects.length + 1}`,
+      text: text,
+      voice: selectedVoice,
+      timestamp: new Date().toLocaleString('ru-RU'),
+    };
+
+    setProjects([newProject, ...projects]);
+    toast({
+      title: 'Сохранено',
+      description: 'Проект успешно сохранен',
+    });
+  };
+
+  const handleLoadProject = (project: Project) => {
+    setText(project.text);
+    setSelectedVoice(project.voice);
+    toast({
+      title: 'Загружено',
+      description: `Проект "${project.name}" загружен`,
+    });
+  };
+
+  const handleDownload = () => {
+    if (!text.trim()) {
+      toast({
+        title: 'Ошибка',
+        description: 'Нет аудио для скачивания',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    toast({
+      title: 'Скачивание',
+      description: 'Аудио файл готовится к загрузке',
+    });
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4 color-black text-black">Добро пожаловать!</h1>
-        <p className="text-xl text-gray-600">тут будет отображаться ваш проект</p>
+    <div className="min-h-screen bg-background p-4 md:p-8">
+      <div className="max-w-7xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-4xl font-bold text-foreground mb-2">🎙️ Синтезатор Речи</h1>
+            <p className="text-muted-foreground">Профессиональная озвучка текста с эмоциями</p>
+          </div>
+          <Button onClick={handleSaveProject} variant="outline" size="lg">
+            <Icon name="Save" className="mr-2 h-5 w-5" />
+            Сохранить проект
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-6">
+            <Card className="p-6 bg-card border-border">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-semibold">Редактор текста</h2>
+                  <Badge variant="secondary">{text.length} символов</Badge>
+                </div>
+                <Textarea
+                  placeholder="Введите текст для озвучки..."
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  className="min-h-[200px] resize-none bg-background border-border text-foreground text-lg font-['Roboto']"
+                />
+              </div>
+            </Card>
+
+            <Card className="p-6 bg-card border-border">
+              <h2 className="text-xl font-semibold mb-4">Настройки голоса</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium flex items-center gap-2">
+                      <Icon name="Gauge" className="h-4 w-4 text-primary" />
+                      Скорость
+                    </label>
+                    <span className="text-sm text-muted-foreground">{speed[0].toFixed(1)}x</span>
+                  </div>
+                  <Slider
+                    value={speed}
+                    onValueChange={setSpeed}
+                    min={0.5}
+                    max={2.0}
+                    step={0.1}
+                    className="cursor-pointer"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium flex items-center gap-2">
+                      <Icon name="Music" className="h-4 w-4 text-primary" />
+                      Тон
+                    </label>
+                    <span className="text-sm text-muted-foreground">{pitch[0].toFixed(1)}x</span>
+                  </div>
+                  <Slider
+                    value={pitch}
+                    onValueChange={setPitch}
+                    min={0.5}
+                    max={2.0}
+                    step={0.1}
+                    className="cursor-pointer"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium flex items-center gap-2">
+                      <Icon name="Activity" className="h-4 w-4 text-primary" />
+                      Интонация
+                    </label>
+                    <span className="text-sm text-muted-foreground">{intonation[0].toFixed(1)}x</span>
+                  </div>
+                  <Slider
+                    value={intonation}
+                    onValueChange={setIntonation}
+                    min={0.5}
+                    max={2.0}
+                    step={0.1}
+                    className="cursor-pointer"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium flex items-center gap-2">
+                      <Icon name="Volume2" className="h-4 w-4 text-primary" />
+                      Громкость
+                    </label>
+                    <span className="text-sm text-muted-foreground">{Math.round(volume[0] * 100)}%</span>
+                  </div>
+                  <Slider
+                    value={volume}
+                    onValueChange={setVolume}
+                    min={0}
+                    max={1}
+                    step={0.1}
+                    className="cursor-pointer"
+                  />
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-6 bg-card border-border">
+              <h2 className="text-xl font-semibold mb-4">Эмоциональная окраска</h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {emotions.map((emotion) => (
+                  <Button
+                    key={emotion.id}
+                    variant={selectedEmotion === emotion.id ? 'default' : 'outline'}
+                    className="h-auto py-4 flex flex-col gap-2"
+                    onClick={() => setSelectedEmotion(emotion.id)}
+                  >
+                    <Icon name={emotion.icon as any} className="h-6 w-6" />
+                    <span className="text-sm">{emotion.label}</span>
+                  </Button>
+                ))}
+              </div>
+            </Card>
+
+            <Card className="p-6 bg-card border-border">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-semibold">Аудиоплеер</h2>
+                  <Button onClick={handleDownload} variant="outline">
+                    <Icon name="Download" className="mr-2 h-4 w-4" />
+                    Скачать MP3
+                  </Button>
+                </div>
+
+                <div className="bg-background rounded-lg p-6 border border-border">
+                  <div className="flex items-center gap-4 mb-4">
+                    <Button
+                      size="lg"
+                      onClick={handleSynthesis}
+                      className="rounded-full w-16 h-16"
+                      disabled={isPlaying}
+                    >
+                      <Icon name={isPlaying ? 'Square' : 'Play'} className="h-6 w-6" />
+                    </Button>
+                    <div className="flex-1">
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={`h-full bg-primary transition-all duration-300 ${
+                            isPlaying ? 'animate-pulse' : ''
+                          }`}
+                          style={{ width: isPlaying ? '100%' : '0%' }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-xs text-muted-foreground mt-2">
+                        <span>0:00</span>
+                        <span>0:00</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {currentVoice && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Icon name="Mic" className="h-4 w-4" />
+                      <span>
+                        {currentVoice.name} • {currentVoice.language.toUpperCase()} • {currentVoice.description}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          <div className="space-y-6">
+            <Card className="p-6 bg-card border-border">
+              <h2 className="text-xl font-semibold mb-4">Выбор голоса</h2>
+              <Tabs defaultValue="ru" className="w-full">
+                <TabsList className="grid w-full grid-cols-2 mb-4">
+                  <TabsTrigger value="ru">Русские</TabsTrigger>
+                  <TabsTrigger value="en">Английские</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="ru">
+                  <ScrollArea className="h-[400px] pr-4">
+                    <div className="space-y-2">
+                      {russianVoices.map((voice) => (
+                        <button
+                          key={voice.id}
+                          onClick={() => setSelectedVoice(voice.id)}
+                          className={`w-full text-left p-4 rounded-lg border transition-all ${
+                            selectedVoice === voice.id
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-background hover:bg-muted border-border'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-semibold">{voice.name}</span>
+                            <Badge variant={voice.gender === 'male' ? 'secondary' : 'outline'}>
+                              {voice.gender === 'male' ? '♂' : '♀'}
+                            </Badge>
+                          </div>
+                          <p className={`text-sm ${selectedVoice === voice.id ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
+                            {voice.description}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
+
+                <TabsContent value="en">
+                  <ScrollArea className="h-[400px] pr-4">
+                    <div className="space-y-2">
+                      {englishVoices.map((voice) => (
+                        <button
+                          key={voice.id}
+                          onClick={() => setSelectedVoice(voice.id)}
+                          className={`w-full text-left p-4 rounded-lg border transition-all ${
+                            selectedVoice === voice.id
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-background hover:bg-muted border-border'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-semibold">{voice.name}</span>
+                            <Badge variant={voice.gender === 'male' ? 'secondary' : 'outline'}>
+                              {voice.gender === 'male' ? '♂' : '♀'}
+                            </Badge>
+                          </div>
+                          <p className={`text-sm ${selectedVoice === voice.id ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
+                            {voice.description}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
+              </Tabs>
+            </Card>
+
+            <Card className="p-6 bg-card border-border">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold">История проектов</h2>
+                <Badge variant="secondary">{projects.length}</Badge>
+              </div>
+              <ScrollArea className="h-[300px] pr-4">
+                <div className="space-y-3">
+                  {projects.map((project) => (
+                    <button
+                      key={project.id}
+                      onClick={() => handleLoadProject(project)}
+                      className="w-full text-left p-4 rounded-lg bg-background hover:bg-muted border border-border transition-all"
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <span className="font-semibold text-foreground">{project.name}</span>
+                        <Icon name="FolderOpen" className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <p className="text-sm text-muted-foreground line-clamp-2 mb-2">{project.text}</p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Icon name="Clock" className="h-3 w-3" />
+                        <span>{project.timestamp}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </ScrollArea>
+            </Card>
+          </div>
+        </div>
       </div>
     </div>
   );
-};
-
-export default Index;
+}
