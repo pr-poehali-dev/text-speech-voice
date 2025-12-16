@@ -75,9 +75,17 @@ export default function Index() {
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [waveformData, setWaveformData] = useState<number[]>([]);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [trimStart, setTrimStart] = useState(0);
+  const [trimEnd, setTrimEnd] = useState(100);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [projects, setProjects] = useState<Project[]>([
     {
       id: '1',
@@ -106,6 +114,60 @@ export default function Index() {
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
+      const audioContext = new AudioContext();
+      audioContextRef.current = audioContext;
+      const analyser = audioContext.createAnalyser();
+      analyserRef.current = analyser;
+      analyser.fftSize = 2048;
+      
+      const source = audioContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      const draw = () => {
+        if (!isPlaying) return;
+        
+        analyser.getByteTimeDomainData(dataArray);
+        
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        
+        const canvasCtx = canvas.getContext('2d');
+        if (!canvasCtx) return;
+
+        canvasCtx.fillStyle = 'rgb(26, 31, 44)';
+        canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+        canvasCtx.lineWidth = 2;
+        canvasCtx.strokeStyle = 'rgb(155, 135, 245)';
+        canvasCtx.beginPath();
+
+        const sliceWidth = canvas.width / bufferLength;
+        let x = 0;
+
+        for (let i = 0; i < bufferLength; i++) {
+          const v = dataArray[i] / 128.0;
+          const y = (v * canvas.height) / 2;
+
+          if (i === 0) {
+            canvasCtx.moveTo(x, y);
+          } else {
+            canvasCtx.lineTo(x, y);
+          }
+
+          x += sliceWidth;
+        }
+
+        canvasCtx.lineTo(canvas.width, canvas.height / 2);
+        canvasCtx.stroke();
+
+        requestAnimationFrame(draw);
+      };
+
+      draw();
+
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
@@ -116,6 +178,9 @@ export default function Index() {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         setAudioBlob(audioBlob);
         stream.getTracks().forEach(track => track.stop());
+        if (audioContextRef.current) {
+          audioContextRef.current.close();
+        }
       };
 
       mediaRecorder.start();
@@ -249,7 +314,7 @@ export default function Index() {
     });
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!audioBlob) {
       toast({
         title: 'Ошибка',
@@ -259,10 +324,68 @@ export default function Index() {
       return;
     }
 
-    const url = URL.createObjectURL(audioBlob);
+    let blobToDownload = audioBlob;
+
+    if (isEditMode && (trimStart > 0 || trimEnd < 100)) {
+      try {
+        const arrayBuffer = await audioBlob.arrayBuffer();
+        const audioContext = new AudioContext();
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        
+        const startTime = (trimStart / 100) * audioBuffer.duration;
+        const endTime = (trimEnd / 100) * audioBuffer.duration;
+        const newLength = Math.floor((endTime - startTime) * audioBuffer.sampleRate);
+        
+        const newBuffer = audioContext.createBuffer(
+          audioBuffer.numberOfChannels,
+          newLength,
+          audioBuffer.sampleRate
+        );
+        
+        for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+          const oldData = audioBuffer.getChannelData(channel);
+          const newData = newBuffer.getChannelData(channel);
+          const startSample = Math.floor(startTime * audioBuffer.sampleRate);
+          
+          for (let i = 0; i < newLength; i++) {
+            newData[i] = oldData[startSample + i];
+          }
+        }
+        
+        const offlineContext = new OfflineAudioContext(
+          newBuffer.numberOfChannels,
+          newBuffer.length,
+          newBuffer.sampleRate
+        );
+        
+        const source = offlineContext.createBufferSource();
+        source.buffer = newBuffer;
+        source.connect(offlineContext.destination);
+        source.start();
+        
+        const renderedBuffer = await offlineContext.startRendering();
+        
+        const wav = audioBufferToWav(renderedBuffer);
+        blobToDownload = new Blob([wav], { type: 'audio/wav' });
+        
+        toast({
+          title: 'Обработка завершена',
+          description: 'Аудио обрезано согласно настройкам',
+        });
+      } catch (error) {
+        console.error('Trim error:', error);
+        toast({
+          title: 'Ошибка',
+          description: 'Не удалось обрезать аудио, скачивается оригинал',
+          variant: 'destructive',
+        });
+      }
+    }
+
+    const url = URL.createObjectURL(blobToDownload);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `озвучка-${currentVoice?.name}-${Date.now()}.webm`;
+    a.download = `озвучка-${currentVoice?.name}-${Date.now()}.${isEditMode ? 'wav' : 'webm'}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -272,6 +395,55 @@ export default function Index() {
       title: 'Скачано',
       description: 'Аудио файл успешно загружен',
     });
+  };
+
+  const audioBufferToWav = (buffer: AudioBuffer): ArrayBuffer => {
+    const length = buffer.length * buffer.numberOfChannels * 2 + 44;
+    const arrayBuffer = new ArrayBuffer(length);
+    const view = new DataView(arrayBuffer);
+    const channels: Float32Array[] = [];
+    let offset = 0;
+    let pos = 0;
+
+    const setUint16 = (data: number) => {
+      view.setUint16(pos, data, true);
+      pos += 2;
+    };
+
+    const setUint32 = (data: number) => {
+      view.setUint32(pos, data, true);
+      pos += 4;
+    };
+
+    setUint32(0x46464952);
+    setUint32(length - 8);
+    setUint32(0x45564157);
+    setUint32(0x20746d66);
+    setUint32(16);
+    setUint16(1);
+    setUint16(buffer.numberOfChannels);
+    setUint32(buffer.sampleRate);
+    setUint32(buffer.sampleRate * 2 * buffer.numberOfChannels);
+    setUint16(buffer.numberOfChannels * 2);
+    setUint16(16);
+    setUint32(0x61746164);
+    setUint32(length - pos - 4);
+
+    for (let i = 0; i < buffer.numberOfChannels; i++) {
+      channels.push(buffer.getChannelData(i));
+    }
+
+    while (pos < length) {
+      for (let i = 0; i < buffer.numberOfChannels; i++) {
+        let sample = Math.max(-1, Math.min(1, channels[i][offset]));
+        sample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+        view.setInt16(pos, sample, true);
+        pos += 2;
+      }
+      offset++;
+    }
+
+    return arrayBuffer;
   };
 
   return (
@@ -403,14 +575,22 @@ export default function Index() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-xl font-semibold">Аудиоплеер</h2>
-                  <Button onClick={handleDownload} variant="outline">
-                    <Icon name="Download" className="mr-2 h-4 w-4" />
-                    Скачать MP3
-                  </Button>
+                  <div className="flex gap-2">
+                    {audioBlob && (
+                      <Button onClick={() => setAudioBlob(null)} variant="outline" size="sm">
+                        <Icon name="Trash2" className="mr-2 h-4 w-4" />
+                        Очистить
+                      </Button>
+                    )}
+                    <Button onClick={handleDownload} variant="outline" size="sm">
+                      <Icon name="Download" className="mr-2 h-4 w-4" />
+                      Скачать
+                    </Button>
+                  </div>
                 </div>
 
-                <div className="bg-background rounded-lg p-6 border border-border">
-                  <div className="flex items-center gap-4 mb-4">
+                <div className="bg-background rounded-lg p-6 border border-border space-y-4">
+                  <div className="flex items-center gap-4">
                     <Button
                       size="lg"
                       onClick={handleSynthesis}
@@ -434,12 +614,94 @@ export default function Index() {
                     </div>
                   </div>
 
+                  <div className="relative w-full h-24 bg-card rounded-lg overflow-hidden border border-border">
+                    <canvas
+                      ref={canvasRef}
+                      width={800}
+                      height={96}
+                      className="w-full h-full"
+                    />
+                    {!isPlaying && !audioBlob && (
+                      <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm">
+                        <Icon name="AudioWaveform" className="mr-2 h-5 w-5" />
+                        Волновая форма появится при воспроизведении
+                      </div>
+                    )}
+                  </div>
+
                   {currentVoice && (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Icon name="Mic" className="h-4 w-4" />
                       <span>
                         {currentVoice.name} • {currentVoice.language.toUpperCase()} • {currentVoice.description}
                       </span>
+                    </div>
+                  )}
+
+                  {audioBlob && (
+                    <div className="pt-4 border-t border-border space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-semibold">Редактирование аудио</h3>
+                        <Button
+                          variant={isEditMode ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => {
+                            setIsEditMode(!isEditMode);
+                            if (!isEditMode) {
+                              setTrimStart(0);
+                              setTrimEnd(100);
+                            }
+                          }}
+                        >
+                          <Icon name={isEditMode ? 'Check' : 'Scissors'} className="mr-2 h-4 w-4" />
+                          {isEditMode ? 'Применить' : 'Обрезать'}
+                        </Button>
+                      </div>
+
+                      {isEditMode && (
+                        <div className="space-y-3">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-medium text-muted-foreground">
+                                Начало обрезки
+                              </label>
+                              <span className="text-xs text-muted-foreground">{trimStart}%</span>
+                            </div>
+                            <Slider
+                              value={[trimStart]}
+                              onValueChange={(val) => setTrimStart(Math.min(val[0], trimEnd - 1))}
+                              min={0}
+                              max={99}
+                              step={1}
+                              className="cursor-pointer"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-medium text-muted-foreground">
+                                Конец обрезки
+                              </label>
+                              <span className="text-xs text-muted-foreground">{trimEnd}%</span>
+                            </div>
+                            <Slider
+                              value={[trimEnd]}
+                              onValueChange={(val) => setTrimEnd(Math.max(val[0], trimStart + 1))}
+                              min={1}
+                              max={100}
+                              step={1}
+                              className="cursor-pointer"
+                            />
+                          </div>
+
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Icon name="Info" className="h-3 w-3" />
+                            <span>
+                              Длительность после обрезки: {Math.floor(duration * (trimEnd - trimStart) / 100)}с
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
