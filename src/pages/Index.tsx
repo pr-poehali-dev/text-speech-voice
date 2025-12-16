@@ -74,7 +74,10 @@ export default function Index() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const [projects, setProjects] = useState<Project[]>([
     {
       id: '1',
@@ -95,6 +98,31 @@ export default function Index() {
       }
     };
   }, []);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        setAudioBlob(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+    } catch (error) {
+      console.error('Recording error:', error);
+    }
+  };
 
   const handleSynthesis = () => {
     if (!text.trim()) {
@@ -117,6 +145,9 @@ export default function Index() {
 
     if (isPlaying) {
       window.speechSynthesis.cancel();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
       setIsPlaying(false);
       setProgress(0);
       return;
@@ -143,6 +174,7 @@ export default function Index() {
 
     utterance.onstart = () => {
       setIsPlaying(true);
+      startRecording();
       toast({
         title: 'Воспроизведение',
         description: `Озвучиваю голосом ${currentVoice?.name}`,
@@ -151,12 +183,18 @@ export default function Index() {
 
     utterance.onend = () => {
       setIsPlaying(false);
-      setProgress(0);
+      setProgress(100);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
     };
 
     utterance.onerror = () => {
       setIsPlaying(false);
       setProgress(0);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
       toast({
         title: 'Ошибка',
         description: 'Не удалось воспроизвести озвучку',
@@ -212,18 +250,27 @@ export default function Index() {
   };
 
   const handleDownload = () => {
-    if (!text.trim()) {
+    if (!audioBlob) {
       toast({
         title: 'Ошибка',
-        description: 'Нет аудио для скачивания',
+        description: 'Сначала воспроизведите озвучку для создания аудио',
         variant: 'destructive',
       });
       return;
     }
 
+    const url = URL.createObjectURL(audioBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `озвучка-${currentVoice?.name}-${Date.now()}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
     toast({
-      title: 'Скачивание',
-      description: 'Аудио файл готовится к загрузке',
+      title: 'Скачано',
+      description: 'Аудио файл успешно загружен',
     });
   };
 
